@@ -5,7 +5,29 @@ function status(t){$('status').textContent=t}function show(){ $('placeholder').c
 function parseId(s){try{let u=new URL(s);if(u.hostname.includes('youtu.be'))return u.pathname.split('/')[1];if(u.hostname.includes('youtube'))return u.searchParams.get('v')||u.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1]}catch{}return /^[\w-]{11}$/.test(s)?s:null}
 async function init(){let p=await fetch('palette.json').then(r=>r.json());palette=p;imgs=p.map(x=>{let i=new Image();i.src='assets/'+x.file;return i});status(`준비 완료 · ${p.length}개 이미지 사용 가능 · 링크나 파일을 불러오세요`)}init().catch(e=>status('이미지 불러오기 실패: '+e.message));
 function stopSources(){video.pause();video.removeAttribute('src');video.load();if(ytPlayer?.stopVideo)try{ytPlayer.stopVideo()}catch{};playing=false}
-function loadThumb(id){let image=new Image();image.onload=()=>{thumb=image;status('유튜브 썸네일 모자이크 표시 중 · 영상 재생은 오른쪽 위 플레이어에서 확인 가능');render(true)};image.onerror=()=>{thumb=null;status('썸네일 로드 실패: 로컬 서버 실행 후 다시 시도하세요')};image.src='/thumb/'+encodeURIComponent(id)+'?t='+Date.now()}
+function loadThumb(id){
+  // GitHub Pages has no /thumb endpoint. A CORS-enabled image proxy is
+  // needed to read YouTube thumbnails with canvas.getImageData().
+  const original=`https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`;
+  const urls=[
+    `https://wsrv.nl/?url=${encodeURIComponent(original)}&output=jpg`,
+    `https://images.weserv.nl/?url=${encodeURIComponent(original)}&output=jpg`,
+    original
+  ];
+  let attempt=0;
+  function next(){
+    if(attempt>=urls.length){thumb=null;status('유튜브 썸네일을 가져오지 못했습니다. 영상 ID 또는 외부 이미지 접근 제한을 확인해 주세요.');return}
+    const image=new Image();image.crossOrigin='anonymous';
+    image.onload=()=>{
+      try{sample.width=1;sample.height=1;sctx.drawImage(image,0,0,1,1);sctx.getImageData(0,0,1,1)}
+      catch(e){next();return}
+      thumb=image;status('유튜브 썸네일 모자이크 표시 중 · 영상 재생은 오른쪽 위 플레이어에서 확인 가능');render(true)
+    };
+    image.onerror=next;
+    image.src=urls[attempt++];
+  }
+  next();
+}
 function loadYT(){let id=parseId($('url').value.trim());if(!id){status('올바른 유튜브 링크를 입력해 주세요');return}stopSources();mode='youtube';videoId=id;show();video.classList.add('hidden');$('yt').classList.remove('hidden');thumb=null;loadThumb(id);if(!ytReady){status('유튜브 API 준비 중...');return}createPlayer(id)}
 function createPlayer(id){if(ytPlayer?.loadVideoById){try{ytPlayer.loadVideoById(id);ytPlayer.setVolume(+$('volume').value);playing=true;return}catch{}}$('yt').innerHTML='';ytPlayer=new YT.Player('yt',{height:'100%',width:'100%',videoId:id,playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,origin:location.origin},events:{onReady:e=>{e.target.setVolume(+$('volume').value);e.target.playVideo();playing=true},onStateChange:e=>{playing=e.data===YT.PlayerState.PLAYING},onError:e=>status('유튜브 재생 오류 ('+e.data+'). 영상의 외부 삽입이 차단되었을 수 있습니다.')}})}
 window.onYouTubeIframeAPIReady=()=>{ytReady=true;if(mode==='youtube'&&videoId)createPlayer(videoId)};
