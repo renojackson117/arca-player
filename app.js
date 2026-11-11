@@ -1,49 +1,64 @@
-const $=id=>document.getElementById(id),canvas=$('screen'),ctx=canvas.getContext('2d',{alpha:false}),sample=document.createElement('canvas'),sctx=sample.getContext('2d',{willReadFrequently:true});
-let palette=[],imgs=[],mode='none',ytPlayer=null,ytReady=false,videoId='',thumb=null,playing=false,lastRender=0,cache=new Map(),lastTime=0;
-const video=$('video');const fmt=t=>{t=Math.max(0,Math.floor(t||0));return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`};
-function status(t){$('status').textContent=t}function show(){ $('placeholder').classList.add('hidden');$('pill').classList.remove('hidden');$('videoWrap').classList.remove('hidden') }
-function parseId(s){try{let u=new URL(s);if(u.hostname.includes('youtu.be'))return u.pathname.split('/')[1];if(u.hostname.includes('youtube'))return u.searchParams.get('v')||u.pathname.match(/\/(?:shorts|embed|live)\/([^/?]+)/)?.[1]}catch{}return /^[\w-]{11}$/.test(s)?s:null}
-async function init(){let p=await fetch('palette.json').then(r=>r.json());palette=p;imgs=p.map(x=>{let i=new Image();i.src='assets/'+x.file;return i});status(`준비 완료 · ${p.length}개 이미지 사용 가능 · 링크나 파일을 불러오세요`)}init().catch(e=>status('이미지 불러오기 실패: '+e.message));
-function stopSources(){video.pause();video.removeAttribute('src');video.load();if(ytPlayer?.stopVideo)try{ytPlayer.stopVideo()}catch{};playing=false}
-function loadThumb(id){
-  // GitHub Pages has no /thumb endpoint. A CORS-enabled image proxy is
-  // needed to read YouTube thumbnails with canvas.getImageData().
-  const original=`https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg`;
-  const urls=[
-    `https://wsrv.nl/?url=${encodeURIComponent(original)}&output=jpg`,
-    `https://images.weserv.nl/?url=${encodeURIComponent(original)}&output=jpg`,
-    original
-  ];
-  let attempt=0;
-  function next(){
-    if(attempt>=urls.length){thumb=null;status('유튜브 썸네일을 가져오지 못했습니다. 영상 ID 또는 외부 이미지 접근 제한을 확인해 주세요.');return}
-    const image=new Image();image.crossOrigin='anonymous';
-    image.onload=()=>{
-      try{sample.width=1;sample.height=1;sctx.drawImage(image,0,0,1,1);sctx.getImageData(0,0,1,1)}
-      catch(e){next();return}
-      thumb=image;status('유튜브 썸네일 모자이크 표시 중 · 영상 재생은 오른쪽 위 플레이어에서 확인 가능');render(true)
-    };
-    image.onerror=next;
-    image.src=urls[attempt++];
-  }
-  next();
+'use strict';
+const $=id=>document.getElementById(id);
+const canvas=$('screen'),ctx=canvas.getContext('2d',{alpha:false});
+const sample=document.createElement('canvas'),sctx=sample.getContext('2d',{willReadFrequently:true});
+const video=$('video');
+let palette=[],images=[],cache=new Map(),objectUrl=null,lastRender=0,ready=false,framePending=false;
+const fmt=t=>{t=Math.max(0,Math.floor(Number.isFinite(t)?t:0));return `${Math.floor(t/3600)?Math.floor(t/3600)+':':''}${Math.floor(t/60)%60}:${String(t%60).padStart(2,'0')}`};
+function status(t){$('status').textContent=t}
+async function init(){
+ const response=await fetch('palette.json');if(!response.ok)throw Error('palette.json HTTP '+response.status);
+ palette=await response.json();images=palette.map(p=>{let i=new Image();i.decoding='async';i.src='assets/'+p.file;return i});
+ status(`준비 완료 · 이미지 ${palette.length}개 · 동영상 파일을 열어주세요`);
 }
-function loadYT(){let id=parseId($('url').value.trim());if(!id){status('올바른 유튜브 링크를 입력해 주세요');return}stopSources();mode='youtube';videoId=id;show();video.classList.add('hidden');$('yt').classList.remove('hidden');thumb=null;loadThumb(id);if(!ytReady){status('유튜브 API 준비 중...');return}createPlayer(id)}
-function createPlayer(id){if(ytPlayer?.loadVideoById){try{ytPlayer.loadVideoById(id);ytPlayer.setVolume(+$('volume').value);playing=true;return}catch{}}$('yt').innerHTML='';ytPlayer=new YT.Player('yt',{height:'100%',width:'100%',videoId:id,playerVars:{autoplay:1,playsinline:1,controls:1,rel:0,origin:location.origin},events:{onReady:e=>{e.target.setVolume(+$('volume').value);e.target.playVideo();playing=true},onStateChange:e=>{playing=e.data===YT.PlayerState.PLAYING},onError:e=>status('유튜브 재생 오류 ('+e.data+'). 영상의 외부 삽입이 차단되었을 수 있습니다.')}})}
-window.onYouTubeIframeAPIReady=()=>{ytReady=true;if(mode==='youtube'&&videoId)createPlayer(videoId)};
-$('load').onclick=loadYT;$('url').addEventListener('keydown',e=>{if(e.key==='Enter')loadYT()});
-$('file').onchange=e=>{let f=e.target.files?.[0];if(!f)return;stopSources();mode='local';show();$('yt').classList.add('hidden');video.classList.remove('hidden');video.src=URL.createObjectURL(f);video.volume=+$('volume').value/100;video.muted=false;video.play().then(()=>{playing=true}).catch(()=>status('자동 재생이 차단되었습니다. ▶ 버튼을 눌러주세요'));status('실시간 동영상 모자이크 · '+f.name)};
-function duration(){return mode==='local'?video.duration||0:mode==='youtube'&&ytPlayer?.getDuration?ytPlayer.getDuration():0}function current(){return mode==='local'?video.currentTime||0:mode==='youtube'&&ytPlayer?.getCurrentTime?ytPlayer.getCurrentTime():0}
-$('play').onclick=()=>{if(mode==='local'){if(video.paused)video.play();else video.pause();playing=!video.paused}else if(mode==='youtube'&&ytPlayer){let state=ytPlayer.getPlayerState();if(state===YT.PlayerState.PLAYING)ytPlayer.pauseVideo();else ytPlayer.playVideo()}};
-$('seek').oninput=e=>{let d=duration();if(!d)return;let t=d*e.target.value/1000;if(mode==='local')video.currentTime=t;else if(ytPlayer?.seekTo)ytPlayer.seekTo(t,true);$('current').textContent=fmt(t)};
-$('volume').oninput=e=>{let v=+e.target.value;$('volumeLabel').textContent=v+'%';video.volume=v/100;if(ytPlayer?.setVolume)ytPlayer.setVolume(v)};
-$('count').oninput=e=>{$('countLabel').textContent=(+e.target.value).toLocaleString()+'개';render(true)};$('blend').oninput=e=>{$('blendLabel').textContent=e.target.value+'%';render(true)};
-$('full').onclick=()=>{if(!document.fullscreenElement)$('viewer').requestFullscreen();else document.exitFullscreen()};
-function choose(r,g,b){let k=(r>>4)<<8|(g>>4)<<4|(b>>4);if(cache.has(k))return cache.get(k);let best=0,score=Infinity;for(let i=0;i<palette.length;i++){let c=palette[i].rgb,dr=r-c[0],dg=g-c[1],db=b-c[2],s=dr*dr*.3+dg*dg*.59+db*db*.11;if(s<score){score=s;best=i}}if(cache.size>5000)cache.clear();cache.set(k,best);return best}
-function render(force=false){if(!palette.length||mode==='none')return;let now=performance.now();if(!force&&now-lastRender<110)return;lastRender=now;let source=mode==='local'&&video.readyState>=2?video:thumb;if(!source)return;
-let W=$('viewer').clientWidth,H=$('viewer').clientHeight;if(!W||!H)return;let desired=+$('count').value,cols=Math.max(1,Math.round(Math.sqrt(desired*W/H))),rows=Math.max(1,Math.round(desired/cols));if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H}sample.width=cols;sample.height=rows;
-let sw=source.videoWidth||source.naturalWidth||source.width,sh=source.videoHeight||source.naturalHeight||source.height;if(!sw||!sh)return;let scale=Math.max(cols/sw,rows/sh),cropW=cols/scale,cropH=rows/scale;sctx.drawImage(source,(sw-cropW)/2,(sh-cropH)/2,cropW,cropH,0,0,cols,rows);let data;try{data=sctx.getImageData(0,0,cols,rows).data}catch(e){status('영상 프레임 접근 제한: '+e.message);return}
-ctx.fillStyle='#090909';ctx.fillRect(0,0,W,H);let cw=W/cols,ch=H/rows,blend=+$('blend').value/100;for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){let j=(y*cols+x)*4,r=data[j],g=data[j+1],b=data[j+2],idx=choose(r,g,b),im=imgs[idx],px=x*cw,py=y*ch;if(im?.complete&&im.naturalWidth)ctx.drawImage(im,px,py,cw+.5,ch+.5);else{ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(px,py,cw+.5,ch+.5)}if(blend){ctx.fillStyle=`rgba(${r},${g},${b},${blend*.78})`;ctx.fillRect(px,py,cw+.5,ch+.5)}}$('pill').textContent=`${cols} × ${rows} · ${(cols*rows).toLocaleString()}개 이미지 · ${mode==='local'?'실시간':'썸네일 기반'}`}
-function loop(t){if(mode==='local'&&!video.paused)render();else if(mode==='youtube'&&thumb&&t-lastRender>1500)render();requestAnimationFrame(loop)}requestAnimationFrame(loop);
-setInterval(()=>{if(mode==='none')return;let d=duration(),c=current();$('current').textContent=fmt(c);$('duration').textContent=fmt(d);if(d&&document.activeElement!==$('seek'))$('seek').value=Math.round(c/d*1000);$('play').textContent=mode==='local'?(video.paused?'▶':'Ⅱ'):(playing?'Ⅱ':'▶')},300);
+init().catch(e=>status('이미지 목록 로딩 실패: '+e.message+' · GitHub Pages 주소에서 접속해 주세요'));
+$('file').addEventListener('change',e=>{
+ const f=e.target.files?.[0];if(!f)return;
+ video.pause();if(objectUrl)URL.revokeObjectURL(objectUrl);
+ objectUrl=URL.createObjectURL(f);ready=false;video.src=objectUrl;video.volume=Number($('volume').value)/100;video.load();
+ $('placeholder').classList.add('hidden');$('pill').classList.remove('hidden');
+ status('영상 불러오는 중 · '+f.name);
+ video.play().catch(()=>status('자동 재생이 제한되었습니다. ▶ 버튼을 눌러주세요'));
+});
+video.addEventListener('loadeddata',()=>{ready=true;render(true);status('실시간 모자이크 재생 준비 완료')});
+video.addEventListener('error',()=>status('영상 디코딩 실패 · 브라우저가 지원하는 MP4(H.264) 또는 WebM 파일을 사용해 주세요'));
+video.addEventListener('seeked',()=>render(true));
+video.addEventListener('pause',()=>render(true));
+video.addEventListener('ended',()=>{$('play').textContent='▶';render(true)});
+$('play').onclick=()=>{if(!video.src){$('file').click();return}if(video.paused)video.play().catch(e=>status('재생 실패: '+e.message));else video.pause()};
+$('seek').oninput=e=>{if(Number.isFinite(video.duration)&&video.duration>0){video.currentTime=video.duration*Number(e.target.value)/1000;$('current').textContent=fmt(video.currentTime)}};
+$('volume').oninput=e=>{let n=Number(e.target.value);video.volume=n/100;$('volumeLabel').textContent=n+'%'};
+$('count').oninput=e=>{$('countLabel').textContent=Number(e.target.value).toLocaleString()+'개';cache.clear();render(true)};
+$('blend').oninput=e=>{$('blendLabel').textContent=e.target.value+'%';render(true)};
+$('full').onclick=()=>document.fullscreenElement?document.exitFullscreen():$('viewer').requestFullscreen().catch(e=>status(e.message));
+function choose(r,g,b){const key=((r>>4)<<8)|((g>>4)<<4)|(b>>4);if(cache.has(key))return cache.get(key);
+ let best=0,dist=Infinity;for(let i=0;i<palette.length;i++){let c=palette[i].rgb,dr=r-c[0],dg=g-c[1],db=b-c[2],d=dr*dr*.30+dg*dg*.59+db*db*.11;if(d<dist){dist=d;best=i}}
+ cache.set(key,best);return best;
+}
+function render(force=false){
+ if(!ready||!palette.length||video.readyState<2||!video.videoWidth)return;
+ const now=performance.now();if(!force&&now-lastRender<95)return;lastRender=now;
+ const rect=$('viewer').getBoundingClientRect(),w=Math.max(1,Math.round(rect.width)),h=Math.max(1,Math.round(rect.height));
+ const count=Number($('count').value),cols=Math.max(1,Math.round(Math.sqrt(count*w/h))),rows=Math.max(1,Math.round(count/cols));
+ const dpr=Math.min(window.devicePixelRatio||1,2),pw=Math.round(w*dpr),ph=Math.round(h*dpr);
+ if(canvas.width!==pw||canvas.height!==ph){canvas.width=pw;canvas.height=ph}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=true;
+ if(sample.width!==cols||sample.height!==rows){sample.width=cols;sample.height=rows}
+ const sw=video.videoWidth,sh=video.videoHeight,scale=Math.max(cols/sw,rows/sh),cropW=cols/scale,cropH=rows/scale;
+ sctx.drawImage(video,(sw-cropW)/2,(sh-cropH)/2,cropW,cropH,0,0,cols,rows);
+ const data=sctx.getImageData(0,0,cols,rows).data,tw=w/cols,th=h/rows,blend=Number($('blend').value)/100;
+ ctx.fillStyle='#050507';ctx.fillRect(0,0,w,h);
+ for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+  const j=(y*cols+x)*4,r=data[j],g=data[j+1],b=data[j+2],im=images[choose(r,g,b)],px=x*tw,py=y*th;
+  if(im?.complete&&im.naturalWidth)ctx.drawImage(im,px,py,tw+.65,th+.65);
+  else{ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(px,py,tw+.65,th+.65)}
+  if(blend>0){ctx.fillStyle=`rgba(${r},${g},${b},${(blend*.78).toFixed(3)})`;ctx.fillRect(px,py,tw+.65,th+.65)}
+ }
+ $('pill').textContent=`● 실시간 · ${cols} × ${rows} · ${(cols*rows).toLocaleString()}개 타일`;
+}
+function tick(){if(!video.paused)render();requestAnimationFrame(tick)}requestAnimationFrame(tick);
+setInterval(()=>{if(!video.src)return;let d=video.duration,c=video.currentTime;
+ $('current').textContent=fmt(c);$('duration').textContent=fmt(d);
+ if(Number.isFinite(d)&&d>0&&document.activeElement!==$('seek'))$('seek').value=Math.round(c/d*1000);
+ $('play').textContent=video.paused?'▶':'Ⅱ';
+},200);
 window.addEventListener('resize',()=>render(true));document.addEventListener('fullscreenchange',()=>render(true));
