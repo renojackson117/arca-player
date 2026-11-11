@@ -39,7 +39,7 @@ function render(force=false){
  if(!ready||!palette.length||video.readyState<2||!video.videoWidth)return;
  const now=performance.now();if(!force&&now-lastRender<95)return;lastRender=now;
  const rect=$('viewer').getBoundingClientRect(),w=Math.max(1,Math.round(rect.width)),h=Math.max(1,Math.round(rect.height));
- const count=Number($('count').value),cols=Math.max(1,Math.round(Math.sqrt(count*w/h))),rows=Math.max(1,Math.round(count/cols));
+ const count=Number($('count').value),cols=count===1?1:Math.max(1,Math.round(Math.sqrt(count*w/h))),rows=count===1?1:Math.max(1,Math.round(count/cols));
  const dpr=Math.min(window.devicePixelRatio||1,2),pw=Math.round(w*dpr),ph=Math.round(h*dpr);
  if(canvas.width!==pw||canvas.height!==ph){canvas.width=pw;canvas.height=ph}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=true;
  if(sample.width!==cols||sample.height!==rows){sample.width=cols;sample.height=rows}
